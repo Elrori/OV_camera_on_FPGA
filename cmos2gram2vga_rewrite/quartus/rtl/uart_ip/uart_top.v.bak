@@ -1,0 +1,185 @@
+/*-------------------------------------------------------------------------
+This confidential and proprietary software may be only used as authorized
+by a licensing agreement from CrazyBingo.
+(C) COPYRIGHT 2012 CrazyBingo. ALL RIGHTS RESERVED
+Filename			:		uart_top.v
+Author				:		CrazyBingo
+Data				:		2011-11-27
+Version				:		1.0
+Description			:		uart control top module.
+Modification History	:
+Data			By			Version			Change Description
+===========================================================================
+11/11/27		CrazyBingo	1.0				Original
+12/03/12		CrazyBingo	1.0				Modification
+--------------------------------------------------------------------------*/
+
+`timescale 1 ns / 1 ns
+module uart_top
+(
+	input			clk,		//global clk
+	input			rst_n,		//global reset
+	output			rxd_flag,	//receive over
+	output	[7:0]	rxd_data,	//receice data
+	input			uart_rxd,	//uart rxd
+		
+	input			txd_en,		//enable transfer
+	input	[7:0]	txd_data,	//transfer data
+//	input	clk_low,
+	output			txd_flag,	//transfer over
+	output			uart_txd,	//uart txd	
+	output			clk_bps,
+	output		reg 	[15:0]counter,
+	output		reg	data,
+	output reg [14:0]ram_address,/**/
+	output		reg 	wren_,
+	output		reg 	led
+);
+//----------------------
+//wire			clk_bps;
+wire			clk_smp;
+
+clk_generator	U_clk_generator
+(
+	.clk		(clk),
+	.rst_n		(rst_n),
+	.clk_bps	(clk_bps),
+	.clk_smp	(clk_smp)
+);
+
+uart_receiver U_uart_receiver
+(
+	.clk		(clk),
+	.clk_smp	(clk_smp),
+	.rst_n		(rst_n),	
+
+	.rxd_data	(rxd_data),	
+	.rxd_flag	(rxd_flag),
+	.rxd		(uart_rxd)
+);
+
+uart_transfer	U_uart_transfer
+(
+	.clk		(clk),
+	.clk_bps	(clk_bps),
+	.rst_n		(rst_n),
+	
+	.txd_en		(txd_en),
+	.txd_data	(txd_data),
+	.txd_flag	(txd_flag),
+	.txd		(uart_txd)
+
+);
+
+
+/****************************************************************************************************
+*RX接收字节计数(160*120黑白点阵：counter = 160*120/8 - 1 = 2400 - 1)；从0开记
+*****************************************************************************************************/
+reg [15:0]_counter;//存储counter的前一个状态，以便counter==0时还可以算出ram_address;
+always @(posedge clk,negedge rst_n)
+begin
+	if(!rst_n)
+		begin
+			counter 	<= 16'b0;
+			led  		<=	1'b0;
+		end
+	else if(rxd_flag == 1'b1)
+	begin
+		
+		if(counter==2399)
+			begin
+				counter 	<= 16'b0;
+				_counter <= counter;
+				led  		<=	1'b1;
+			end
+		else
+			begin
+				counter 	<= counter + 16'b1;
+				_counter <= counter;	
+				led  		<=	1'b0;
+			end
+	end
+end
+/****************************************************************************************************
+*状态机；当rxd_flag == 1'b1时进入write_ram_station(将持续8个clk长度)；产生wren，产生
+*ram_address；在write_ram_station时由bit_counter_8计数1~8，配合counter产生ram_address。
+*注意ram时钟与此模块clk相同！此模块clk固定50MHZ
+*****************************************************************************************************/
+parameter wait_station = 2'd0,write_ram_station = 2'd1;
+reg station,next_station;
+reg [4:0]bit_counter;
+reg	wren;
+always @(posedge clk or negedge rst_n)
+begin
+	if(!rst_n)
+		station <= wait_station;
+	else
+		station <= next_station;
+end
+
+always @(station or rst_n or rxd_flag or bit_counter)
+begin
+	if(!rst_n)
+		next_station = wait_station;
+	else if(rxd_flag == 1'b1)
+		next_station = write_ram_station;
+	else
+		case(station)
+			wait_station:			next_station = wait_station;
+			write_ram_station:	
+										if(bit_counter >= 8)
+											next_station = wait_station;
+										else
+											next_station = write_ram_station;
+			default:					next_station = wait_station;
+		endcase
+end
+
+always @(posedge clk,negedge rst_n)
+begin
+	if(!rst_n)
+		begin
+			bit_counter <= 1'b0;
+		end
+	else
+		case(next_station)
+			wait_station:			begin
+										wren <= 1'b0;
+										bit_counter <=1'b0;
+										//ram_address <= 15'b0;
+										end
+			write_ram_station:	begin
+										wren <= 1'b1;
+										//ram_address <= (counter - 1'b1)*8 + bit_counter;
+										bit_counter <= bit_counter + 1'b1;
+										end
+			default:;
+		endcase
+end
+
+reg [4:0]bit_counter_8;
+always @(posedge clk)
+begin
+	if(wren)
+		begin
+			bit_counter_8 	= 	bit_counter_8  +1'b1;
+			ram_address 	= 	_counter*8 + bit_counter_8;//根据_counter生成地址
+			data				=	rxd_data[bit_counter_8 - 1'b1]; 	//每一个posedge clk将rxd_data各位写入data
+		end
+	else
+		begin
+			bit_counter_8 	<= 1'b0;
+			ram_address 	<= 15'b0;
+		end
+end
+/****************************************************************************************************
+*产生wren的延后：wren_，配合ram_address写；注意wren_是真实的ram使能信号！
+*****************************************************************************************************/
+always @(posedge clk)
+begin
+	if(wren)
+		wren_ <= 1'b1;
+	else
+		wren_ <= 1'b0;
+end
+endmodule

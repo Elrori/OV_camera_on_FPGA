@@ -1,0 +1,90 @@
+/*******************************************************************************************
+*  Name         :cmos2gram2vga.v top
+*  Description  :cmos to gram to vga display, altera ip used,sdram:8192x512x4x16bits
+*                cmos:ov7670
+*  Origin       :190124
+*  Author       :helrori2011@gmail.com
+*  Reference    :
+********************************************************************************************/
+module cmos2gram2vga
+(
+    //CLOCK
+    input   wire             _clk_            ,//external osc 50Mhz
+    input   wire             _rst_n_          ,//reset_n key
+    //CMOS
+    input   wire             wr_clk            ,
+    input   wire             wr_en             ,
+    input   wire    [15 :  0]wr_data           ,
+    //VGA
+    output  wire             hsync,
+    output  wire             vsync,
+    output  wire    [15 :  0]rgb_out,
+    
+    //SDRAM
+    output  wire    [12 :  0]sdram_addr     ,//(init,read,write)
+    output  wire    [1  :  0]sdram_bkaddr   ,//(init,read,write)
+    inout   wire    [15 :  0]sdram_data     ,//16bits (read,write)
+    output  wire             sdram_clk      ,
+    output  wire             sdram_cke      ,//always 1
+    output  wire             sdram_cs_n     ,//always 0
+    output  wire             sdram_ras_n    ,
+    output  wire             sdram_cas_n    ,
+    output  wire             sdram_we_n     ,
+    output  wire             sdram_dqml     ,//not use,always 0
+    output  wire             sdram_dqmh      //not use,always 0
+);
+wire rst_n,clk_100m,clk_100m_ref,clk_25m,en;
+pll pll_0
+(
+	.areset(~_rst_n_)    ,
+	.inclk0(_clk_)       ,
+	.c0(clk_100m)        ,
+	.c1(clk_100m_ref)    ,
+	.c2(clk_25m)         ,
+	.locked(rst_n)
+);
+
+vga_core vga_core_0
+(
+    .clk(clk_25m),    // 100Mhz clock signal
+    .rst_n(rst_n),  // reset_n
+    .hs(hsync),  // HSYNC VGA control output
+    .vs(vsync),  // VSYNC VGA control output
+    .en(en),     // Indicates when RGB generation circuit should enable (x,y valid)
+    .x(),      // Current X position being displayed
+    .y()       // Current Y position being displayed (top = 0)
+);
+
+gram gram_0
+(
+    //CLOCK
+    .clk(clk_100m)            ,//100Mhz
+    .clk_ref(clk_100m_ref)    ,//sdram_clk 100Mhz -80 degrees
+    .rst_n(rst_n)        ,
+    //GDATA CMOS --> FIFO
+    .wr_clk(wr_clk)      ,
+    .wr_en(wr_en)        ,
+    .wr_data(wr_data)    ,
+    .wr_frame_sync()     ,    
+  
+    //FIFO --> GDATA VGA 
+    .rd_clk(clk_25m)     ,    
+    .rd_en(en)           ,
+    .rd_data(rgb_out)    ,
+    .rd_frame_sync()     ,    
+    
+    //SDRAM
+    .sdram_addr(sdram_addr)         ,//(init,read,write)
+    .sdram_bkaddr(sdram_bkaddr)     ,//(init,read,write)
+    .sdram_data(sdram_data)         ,//仅支持16bits (read,write)
+    .sdram_clk(sdram_clk)           ,
+    .sdram_cke(sdram_cke)           ,//always 1
+    .sdram_cs_n(sdram_cs_n)         ,//always 0
+    .sdram_ras_n(sdram_ras_n)       ,
+    .sdram_cas_n(sdram_cas_n)       ,
+    .sdram_we_n(sdram_we_n)         ,
+    .sdram_dqml(sdram_dqml)         ,//not use,always 0
+    .sdram_dqmh(sdram_dqmh)          //not use,always 0
+);
+
+endmodule

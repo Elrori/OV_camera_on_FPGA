@@ -1,0 +1,3 @@
+module ov7670_reg
+();
+endmodule
