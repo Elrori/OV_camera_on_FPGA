@@ -1,2 +1,2 @@
 # OV_camera_on_FPGA
-OV7670 (Verilog HDL)Drive for FPGA
+simple test the OV7670 on FPGA
